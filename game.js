@@ -1257,34 +1257,47 @@ class JengaGame {
     });
   }
 
-  _getValidPlaceSpots() {
-    const spots = [];
-    let maxY = TABLE_Y;
-
-    for (const b of this.blocks) {
-      if (b === this.floatingBlock) continue;
-      const pos = b.body?.position || b.mesh?.position;
-      if (pos) maxY = Math.max(maxY, pos.y);
-    }
-
+  _getPlacementRowInfo() {
     let row = this.topRow;
     let startSlot = this.topRowBlockCount;
     if (startSlot >= BPR) {
       row++;
       startSlot = 0;
     }
+    return { row, startSlot };
+  }
 
+  _getTowerTopY() {
+    let maxY = TABLE_Y;
+    for (const b of this.blocks) {
+      if (b === this.floatingBlock) continue;
+      const pos = b.body?.position || b.mesh?.position;
+      if (pos) maxY = Math.max(maxY, pos.y);
+    }
+    return maxY;
+  }
+
+  /** จังก้าจริง — ชั้นใหม่ตั้งฉากกับชั้นล่าง */
+  _getDefaultPlaceOrientation() {
+    const { row } = this._getPlacementRowInfo();
+    return row % 2 === 0;
+  }
+
+  _getValidPlaceSpots(orientEven = this.placeIsHorizontal) {
+    const spots = [];
+    const maxY = this._getTowerTopY();
+    const { row, startSlot } = this._getPlacementRowInfo();
     const y = startSlot === 0 ? maxY + BLOCK_H : maxY;
-    const isEven = row % 2 === 0;
 
     for (let slot = startSlot; slot < BPR; slot++) {
       const offset = (slot - 1) * BLOCK_W;
-      const x = isEven ? offset : 0;
-      const z = isEven ? 0 : offset;
+      const x = orientEven ? offset : 0;
+      const z = orientEven ? 0 : offset;
 
       spots.push({
         slotIndex: slot,
         row,
+        isEven: orientEven,
         position: new THREE.Vector3(x, y, z),
       });
     }
@@ -1298,11 +1311,24 @@ class JengaGame {
     return quat;
   }
 
+  _animateQuaternion(mesh, targetQuat, duration, onComplete) {
+    this.animations.push({
+      mesh,
+      startPos: mesh.position.clone(),
+      targetPos: mesh.position.clone(),
+      startQuat: mesh.quaternion.clone(),
+      targetQuat: targetQuat.clone(),
+      startTime: performance.now(),
+      duration: duration * 1000,
+      onComplete,
+    });
+  }
+
   _startPlaceSelect(block) {
     this.floatingBlock = block;
     this._placeResolved = false;
-    this.placeIsHorizontal = block.isEven;
-    this.placeSpots = this._getValidPlaceSpots();
+    this.placeIsHorizontal = this._getDefaultPlaceOrientation();
+    this.placeSpots = this._getValidPlaceSpots(this.placeIsHorizontal);
     this.placeTimerStart = performance.now();
     this.state = State.PLACE_SELECT;
 
@@ -1311,7 +1337,7 @@ class JengaGame {
     this._showPlaceUI();
 
     if (this._canInteract()) {
-      this._setStatus(`📍 เลือกจุดวาง + กด 🔄 หมุนบล็อก (${PLACE_TIME_LIMIT}s)`);
+      this._setStatus(`📍 เลือกจุดวาง — ทิศทางตั้งฉากชั้นล่าง (🔄 หมุนได้) (${PLACE_TIME_LIMIT}s)`);
     } else {
       this._setStatus(`⏳ รอ ${this.players[this.currentPlayerIdx].name} เลือกจุดวาง...`);
     }
@@ -1334,19 +1360,44 @@ class JengaGame {
     if (this.state !== State.PLACE_SELECT || !this._canInteract() || !this.floatingBlock) return;
 
     this.placeIsHorizontal = !this.placeIsHorizontal;
-    this._applyPlaceOrientationPreview();
+    this.placeSpots = this._getValidPlaceSpots(this.placeIsHorizontal);
+    this._refreshPlaceGhostsAnimated();
 
     if (this.onlineMode) this.mp.broadcastPlaceRotate(this.placeIsHorizontal);
 
     const orient = this.placeIsHorizontal ? 'แนวนอน ↔' : 'แนวตั้ง ↕';
-    this._setStatus(`🔄 หมุนเป็น${orient} — แตะจุดวางเมื่อพร้อม`);
+    this._setStatus(`🔄 หมุนเป็น${orient} — จุดวางปรับตามทิศทางบล็อก`);
   }
 
   _executeRemotePlaceRotate(isHorizontal, playerIdx) {
     if (this.state !== State.PLACE_SELECT) return;
     this.currentPlayerIdx = playerIdx;
     this.placeIsHorizontal = isHorizontal;
-    this._applyPlaceOrientationPreview();
+    this.placeSpots = this._getValidPlaceSpots(this.placeIsHorizontal);
+    this._refreshPlaceGhostsAnimated();
+  }
+
+  _refreshPlaceGhostsAnimated() {
+    const quat = this._getPlaceQuaternion(this.placeIsHorizontal);
+    const label = document.getElementById('place-orient-label');
+    if (label) label.textContent = this.placeIsHorizontal ? 'แนวนอน ↔' : 'แนวตั้ง ↕';
+
+    if (this.floatingBlock) {
+      this._animateQuaternion(this.floatingBlock.mesh, quat, 0.38);
+    }
+
+    if (this.placeGhostMeshes.length !== this.placeSpots.length) {
+      this._showPlaceGhosts();
+      this._applyPlaceOrientationPreview();
+      return;
+    }
+
+    for (let i = 0; i < this.placeGhostMeshes.length; i++) {
+      const ghost = this.placeGhostMeshes[i];
+      const spot = this.placeSpots[i];
+      ghost.userData.placeSpot = spot;
+      this._animateTo(ghost, spot.position, quat, 0.38);
+    }
   }
 
   _buildFinalSpot(spot) {
@@ -1368,7 +1419,7 @@ class JengaGame {
     panel.classList.remove('hidden');
     if (hint) {
       hint.textContent = this._canInteract()
-        ? 'แตะจุดวาง หรือกด 🔄 / R เพื่อหมุนแนวนอน-ตั้ง — หมดเวลาบล็อกร่วง!'
+        ? 'แตะจุดวาง — บล็อกตั้งฉากชั้นล่าง (กด 🔄 / R หมุนทิศ) — หมดเวลาจะร่วงตามฟิสิกส์!'
         : `รอ ${this.players[this.currentPlayerIdx].name} เลือกจุดวาง...`;
     }
     const rotateBtn = document.getElementById('btn-rotate-place');
@@ -1532,14 +1583,23 @@ class JengaGame {
 
     const targetPos = spot.position;
     const targetQuat = spot.quaternion;
-    this._setStatus('📦 กำลังวางบล็อก...');
+    const approachPos = targetPos.clone().add(new THREE.Vector3(0, 0.55, 0));
 
-    this._animateTo(block.mesh, targetPos, targetQuat, 0.9, () => {
-      this._finalizePlacedBlock(block, targetPos, targetQuat);
+    this._setStatus('📦 กำลังวางบล็อก...');
+    this._animateTo(block.mesh, approachPos, targetQuat, 0.42, () => {
+      this._dropBlockWithPhysics(block, targetPos, targetQuat);
     });
   }
 
-  _finalizePlacedBlock(block, targetPos, targetQuat) {
+  _stylePlacedBlock(block) {
+    const playerColor = new THREE.Color(this.players[this.currentPlayerIdx].color);
+    block.mesh.material.color.copy(block.originalColor).lerp(playerColor, 0.38);
+    block.originalColor.copy(block.mesh.material.color);
+    block.mesh.material.emissive.copy(block.originalColor);
+    block.mesh.material.emissiveIntensity = 0.06;
+  }
+
+  _createBlockBody(pos, quat) {
     const shape = new CANNON.Box(new CANNON.Vec3(HALF_W, HALF_H, HALF_L));
     const body = new CANNON.Body({
       mass: 1,
@@ -1550,20 +1610,59 @@ class JengaGame {
       linearDamping: 0.05,
       angularDamping: 0.05,
     });
-    body.position.set(targetPos.x, targetPos.y, targetPos.z);
-    if (targetQuat) {
-      body.quaternion.set(targetQuat.x, targetQuat.y, targetQuat.z, targetQuat.w);
-    }
+    body.position.set(pos.x, pos.y, pos.z);
+    if (quat) body.quaternion.set(quat.x, quat.y, quat.z, quat.w);
+    return body;
+  }
+
+  _attachBlockBody(block, body) {
     this.world.addBody(body);
     block.body = body;
     block.animating = false;
+    block.mesh.position.copy(body.position);
+    block.mesh.quaternion.copy(body.quaternion);
+  }
 
-    const playerColor = new THREE.Color(this.players[this.currentPlayerIdx].color);
-    block.mesh.material.color.copy(block.originalColor).lerp(playerColor, 0.38);
-    block.originalColor.copy(block.mesh.material.color);
-    block.mesh.material.emissive.copy(block.originalColor);
-    block.mesh.material.emissiveIntensity = 0.06;
+  /** ปล่อยบล็อกให้ตกลงชั้นล่างตามฟิสิกส์ (host / ออฟไลน์) */
+  _dropBlockWithPhysics(block, targetPos, targetQuat) {
+    if (this._shouldRunPhysics()) {
+      const body = this._createBlockBody(
+        new THREE.Vector3(targetPos.x, targetPos.y + 0.22, targetPos.z),
+        targetQuat,
+      );
+      body.velocity.set(0, -1.4, 0);
+      body.angularVelocity.set(
+        (Math.random() - 0.5) * 0.15,
+        0,
+        (Math.random() - 0.5) * 0.15,
+      );
+      this._attachBlockBody(block, body);
+      this._stylePlacedBlock(block);
+      this._spawnDust(targetPos.clone(), block.originalColor.getHex(), 12);
+      this._wakeAll();
+      this._unhighlight(block);
+      this._beginStabilityCheck();
+      return;
+    }
 
+    this._tweenDropSettle(block, targetPos, targetQuat);
+  }
+
+  /** ออนไลน์ (ไม่ใช่ host): จำลองการตกลงให้ดูสมจริง */
+  _tweenDropSettle(block, targetPos, targetQuat) {
+    const settlePos = targetPos.clone().add(new THREE.Vector3(0, 0.04, 0));
+    this._animateTo(block.mesh, settlePos, targetQuat, 0.22, () => {
+      this._snapPlacedBlock(block, targetPos, targetQuat);
+    });
+  }
+
+  _snapPlacedBlock(block, targetPos, targetQuat) {
+    const body = this._createBlockBody(targetPos, targetQuat);
+    body.velocity.set(0, 0, 0);
+    body.angularVelocity.set(0, 0, 0);
+    this._sleepBody(body);
+    this._attachBlockBody(block, body);
+    this._stylePlacedBlock(block);
     this._spawnDust(targetPos.clone(), block.originalColor.getHex(), 12);
     this._wakeAll();
     this._unhighlight(block);
@@ -1587,7 +1686,13 @@ class JengaGame {
   }
 
   _shouldRunPhysics() {
-    return !this.onlineMode || this.mp.isHost;
+    if (!this.onlineMode) return true;
+    if (this.mp.isHost) return true;
+    // ช่วงวางบล็อก — ให้เห็นการตกลงแบบฟิสิกส์บนเครื่องตัวเอง
+    if (this.state === State.PLACING && this.mp.myPlayerIdx === this.currentPlayerIdx) {
+      return true;
+    }
+    return false;
   }
 
   _collectBlockSnapshot() {
