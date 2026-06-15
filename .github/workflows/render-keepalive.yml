@@ -1,0 +1,25 @@
+# กันหลับ Render แผนฟรี — ping /health ทุก 14 นาที
+# ตั้งค่า: GitHub repo → Settings → Secrets → RENDER_APP_URL
+# ค่า secret = https://your-app.onrender.com (ไม่มี / ท้าย)
+
+name: Render Keep-Alive
+
+on:
+  schedule:
+    - cron: '*/14 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render health
+        env:
+          RENDER_APP_URL: ${{ secrets.RENDER_APP_URL }}
+        run: |
+          if [ -z "$RENDER_APP_URL" ]; then
+            echo "⚠️ ยังไม่ได้ตั้ง RENDER_APP_URL secret — ข้าม"
+            exit 0
+          fi
+          curl -fsS --max-time 30 "${RENDER_APP_URL%/}/health"
+          echo "✓ OK $(date -u)"

@@ -1,12 +1,13 @@
-# Deploy: render.com → New → Blueprint → เลือก repo นี้
+# Blueprint — push ขึ้น main แล้ว Render deploy อัตโนมัติ
 services:
   - type: web
     name: jenga-game
     runtime: node
+    plan: free
     buildCommand: npm install
     startCommand: node server.js
     healthCheckPath: /health
-    plan: free
+    autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
