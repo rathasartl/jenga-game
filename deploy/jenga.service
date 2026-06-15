@@ -1,0 +1,16 @@
+[Unit]
+Description=JENGA Multiplayer Game Server
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/jenga-game
+Environment=NODE_ENV=production
+Environment=PORT=8080
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

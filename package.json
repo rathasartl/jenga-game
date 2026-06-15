@@ -1,0 +1,21 @@
+{
+  "name": "jenga-game",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "start:prod": "pm2 start ecosystem.config.cjs",
+    "stop:prod": "pm2 stop jenga-game",
+    "tunnel": "bash scripts/tunnel.sh",
+    "tunnel:home": "bash scripts/home-tunnel.sh",
+    "setup:vps": "bash scripts/setup-vps.sh",
+    "render:keepalive": "bash scripts/render-keepalive.sh"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

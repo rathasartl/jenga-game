@@ -1,0 +1,5 @@
+{
+  "framework": null,
+  "installCommand": "echo skip",
+  "buildCommand": "echo static-frontend-only"
+}

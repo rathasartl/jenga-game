@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>ตึกถล่ม JENGA 3D — Multiplayer</title>
+  <meta name="description" content="เกมจังก้า 3D เล่นได้สูงสุด 6 คน — ดึงบล็อก วางบนยอด อย่าให้ตึกถล่ม!">
+  <!-- ถ้าเอา frontend ขึ้น Vercel แยกจาก backend ให้ใส่ wss://your-app.fly.dev -->
+  <meta name="jenga-ws-url" content="">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧱</text></svg>">
+  <link rel="stylesheet" href="styles.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+      "cannon-es": "https://esm.sh/cannon-es@0.20.0"
+    }
+  }
+  </script>
+  <script>window.__errors=[];window.addEventListener('error',e=>window.__errors.push(e.message));window.addEventListener('unhandledrejection',e=>window.__errors.push(e.reason?.message||String(e.reason)));</script>
+</head>
+<body>
+  <!-- ═══════════════════════════════════════════════
+       SETUP SCREEN
+       ═══════════════════════════════════════════════ -->
+  <div id="setup-screen">
+    <div class="setup-container">
+      <h1 class="game-title">JENGA</h1>
+      <p class="game-subtitle">ตึกถล่ม — Multiplayer 3D</p>
+
+      <div class="mode-tabs">
+        <button class="mode-tab active" data-mode="local" type="button">📱 เครื่องเดียว</button>
+        <button class="mode-tab" data-mode="online" type="button">🌐 ออนไลน์</button>
+      </div>
+
+      <div id="local-setup">
+        <div class="setup-section">
+          <label for="player-count">จำนวนผู้เล่น</label>
+          <select id="player-count">
+            <option value="2">2 คน</option>
+            <option value="3">3 คน</option>
+            <option value="4">4 คน</option>
+            <option value="5">5 คน</option>
+            <option value="6">6 คน</option>
+          </select>
+        </div>
+
+        <div id="player-inputs" class="player-inputs"></div>
+
+        <button id="start-btn" class="btn-start">🏗️ เริ่มเกม</button>
+      </div>
+
+      <div id="online-setup" class="hidden">
+        <p id="connection-status" class="connection-status">⚪ ยังไม่เชื่อมต่อ</p>
+
+        <div id="online-menu">
+          <input type="text" id="online-name-input" class="online-input"
+                 placeholder="ชื่อของคุณ" maxlength="20" value="">
+          <div class="online-actions">
+            <button id="create-room-btn" class="btn-start btn-half" type="button">🏠 สร้างห้อง</button>
+            <button id="join-room-btn" class="btn-start btn-half btn-secondary" type="button">🚪 เข้าร่วม</button>
+          </div>
+          <input type="text" id="room-code-input" class="online-input room-code-input"
+                 placeholder="รหัสห้อง 4 ตัว" maxlength="4" autocomplete="off">
+          <p class="online-hint">เล่นได้ทั้งมือถือและคอม — ไม่ต้อง Wi‑Fi เดียวกัน ถ้าใช้ <code>npm run tunnel</code></p>
+        </div>
+
+        <div id="lobby-panel" class="hidden">
+          <div class="room-code-box">
+            <span class="room-code-label">รหัสห้อง</span>
+            <span id="room-code-display" class="room-code-value">----</span>
+          </div>
+          <div class="share-link-box">
+            <input type="text" id="share-link" class="share-link-input" readonly>
+            <button id="copy-link-btn" class="btn-copy" type="button">📋 คัดลอกลิงก์</button>
+          </div>
+          <p class="share-hint">ส่งลิงก์นี้ให้เพื่อน — เปิดแล้วเข้าห้องอัตโนมัติ ไม่ต้องกรอกรหัส 🌍</p>
+          <div id="lobby-players" class="lobby-players"></div>
+          <p id="lobby-status" class="lobby-status">รอผู้เล่น...</p>
+          <button id="lobby-start-btn" class="btn-start hidden" type="button">🏗️ เริ่มเกม</button>
+          <button id="leave-room-btn" class="btn-leave" type="button">ออกจากห้อง</button>
+        </div>
+
+        <p id="online-error" class="online-error"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       GAME UI OVERLAY
+       ═══════════════════════════════════════════════ -->
+  <div id="game-ui" class="hidden">
+    <!-- 3D Canvas Container -->
+    <div id="game-canvas"></div>
+
+    <!-- Menu Button -->
+    <button id="menu-btn" class="btn-menu" type="button" title="กลับเมนูหลัก">🏠 เมนู</button>
+
+    <!-- Player Panel (left side) -->
+    <div id="player-panel" class="glass-panel player-panel">
+      <h3>🏆 อันดับ & คะแนน</h3>
+      <div id="player-list"></div>
+    </div>
+
+    <!-- Status Bar (top center) -->
+    <div id="status-bar" class="glass-panel status-bar">
+      <span id="room-badge" class="room-badge hidden"></span>
+      <span id="status-text">คลิกบล็อกที่ต้องการดึง</span>
+    </div>
+
+    <!-- Turn Indicator (bottom center) -->
+    <div id="turn-indicator" class="turn-indicator">
+      <span id="turn-player-name">—</span>
+      <span class="turn-label">กำลังเล่น</span>
+    </div>
+
+    <!-- Controls Help (bottom right) -->
+    <div id="controls-help" class="glass-panel controls-help">
+      🖱️ ลาก = หมุนกล้อง &nbsp;|&nbsp; 📌 แตะบล็อก = ดึง &nbsp;|&nbsp; 🔄 หมุนบล็อก &nbsp;|&nbsp; 📍 แตะจุดวาง
+    </div>
+
+    <!-- Confirm Panel (shown when block is selected) -->
+    <div id="confirm-panel" class="confirm-panel hidden">
+      <button id="btn-pull" class="btn-confirm">✓ ดึงบล็อกนี้</button>
+      <button id="btn-cancel" class="btn-cancel">✗ ยกเลิก</button>
+    </div>
+
+    <!-- Place Panel (เลือกจุดวาง + จับเวลา) -->
+    <div id="place-panel" class="place-panel hidden">
+      <div class="place-timer-wrap">
+        <div id="place-timer-bar" class="place-timer-bar"></div>
+      </div>
+      <p id="place-hint" class="place-hint">แตะจุดเรืองแสงบนยอดตึกเพื่อวาง</p>
+      <div class="place-actions">
+        <button id="btn-rotate-place" class="btn-rotate-place" type="button">🔄 หมุนแนวนอน/ตั้ง</button>
+        <span id="place-orient-label" class="place-orient-label">แนวนอน</span>
+      </div>
+    </div>
+
+    <!-- Game Over Modal (centered over 3D game) -->
+    <div id="game-over-overlay" class="game-over-overlay hidden">
+      <div class="game-over-modal">
+        <h2 class="game-over-title">💥 ตึกถล่ม!</h2>
+        <div id="loser-banner" class="loser-banner"></div>
+        <p class="winner-section-title">🏆 รายชื่อผู้ชนะ</p>
+        <div id="winner-list" class="winner-list"></div>
+        <div class="game-over-actions">
+          <button id="rematch-btn" class="btn-start" type="button">🔄 เล่นใหม่</button>
+          <button id="leave-game-btn" class="btn-leave-game hidden" type="button">🚪 ออกจากห้อง</button>
+          <button id="menu-game-btn" class="btn-menu-game hidden" type="button">🏠 กลับเมนู</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="game.js"></script>
+</body>
+</html>

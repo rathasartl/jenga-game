@@ -1,0 +1,12 @@
+# Deploy: render.com → New → Blueprint → เลือก repo นี้
+services:
+  - type: web
+    name: jenga-game
+    runtime: node
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /health
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
