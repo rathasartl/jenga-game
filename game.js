@@ -365,6 +365,27 @@ class JengaGame {
     return this._getRankings(loserIdx).filter((r) => !r.isLoser);
   }
 
+  /** อันดับคะแนนทุกคนในห้อง — คะแนนสูงสุด = อันดับ 1 */
+  _getFullScoreRankings(loserIdx = null) {
+    const items = this.players.map((p, i) => ({
+      idx: i,
+      name: p.name,
+      color: p.color,
+      score: p.pulls,
+      isLoser: loserIdx !== null && i === loserIdx,
+    }));
+
+    items.sort((a, b) => b.score - a.score);
+
+    const ranked = [];
+    let rank = 1;
+    for (let i = 0; i < items.length; i++) {
+      if (i > 0 && items[i].score < items[i - 1].score) rank = i + 1;
+      ranked.push({ ...items[i], rank });
+    }
+    return ranked;
+  }
+
   _updateLobby(players, started) {
     const list = document.getElementById('lobby-players');
     const focusedName = document.activeElement?.classList?.contains('lobby-name-edit')
@@ -2083,7 +2104,7 @@ class JengaGame {
       console.error('[JENGA] game over modal: invalid loserIdx', loserIdx);
       return;
     }
-    const winners = this._getWinnerRankings(loserIdx);
+    const rankings = this._getFullScoreRankings(loserIdx);
 
     document.getElementById('loser-banner').innerHTML = `
       <span class="loser-badge">แพ้</span>
@@ -2094,21 +2115,17 @@ class JengaGame {
     const winnerList = document.getElementById('winner-list');
     winnerList.innerHTML = '';
 
-    if (winners.length === 0) {
-      winnerList.innerHTML = '<p class="no-winners">ไม่มีผู้ชนะ</p>';
-    } else {
-      winners.forEach((r) => {
-        const medal = this._getRankMedal(r.rank);
-        winnerList.innerHTML += `
-          <div class="winner-item">
-            <span class="rank-medal">${medal}</span>
-            <span class="winner-rank-label">อันดับ ${r.rank}</span>
-            <span class="winner-name" style="color:${r.color}">${r.name}</span>
-            <span class="rank-score">${r.score} คะแนน</span>
-          </div>
-        `;
-      });
-    }
+    rankings.forEach((r) => {
+      const medal = this._getRankMedal(r.rank);
+      winnerList.innerHTML += `
+        <div class="winner-item${r.isLoser ? ' is-loser-row' : ''}">
+          <span class="rank-medal">${medal}</span>
+          <span class="winner-rank-label">#${r.rank}</span>
+          <span class="winner-name" style="color:${r.color}">${r.name}</span>
+          <span class="rank-score">${r.score} คะแนน</span>
+        </div>
+      `;
+    });
 
     this._showGameOverActions();
     const overlay = document.getElementById('game-over-overlay');

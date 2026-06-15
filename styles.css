@@ -1132,9 +1132,9 @@ html, body {
 }
 
 .winner-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: 2rem 2.5rem 1fr auto;
   align-items: center;
-  justify-content: flex-start;
   gap: 10px;
   padding: 10px 14px;
   font-size: 1rem;
@@ -1145,6 +1145,11 @@ html, body {
   margin-bottom: 8px;
 }
 
+.winner-item.is-loser-row {
+  opacity: 0.72;
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
 .winner-item .trophy,
 .winner-item .rank-medal {
   font-size: 1.3rem;
@@ -1152,9 +1157,16 @@ html, body {
 }
 
 .winner-item .rank-score {
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   color: var(--gold);
-  font-weight: 600;
+  font-weight: 700;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.winner-item:first-child:not(.is-loser-row) {
+  border-color: rgba(245, 200, 66, 0.35);
+  background: rgba(245, 200, 66, 0.06);
 }
 
 
