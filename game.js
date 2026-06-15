@@ -21,8 +21,9 @@ const ROWS = 18;
 const BPR = 3; // blocks per row
 const TABLE_Y = 0.3;
 const PLACE_TIME_LIMIT = 15; // วินาที — หมดเวลาแล้วบล็อกร่วงตามฟิสิกส์
-const STABILITY_MAX_WAIT = 12; // รอฟิสิกส์นิ่งสูงสุดก่อนตัดสินผล
-const COLLAPSE_STREAK_NEED = 3; // เฟรมติดกันที่ตรวจพบถล่ม
+const STABILITY_MAX_WAIT = 10; // รอฟิสิกส์นิ่งสูงสุดก่อนตัดสินผล
+const COLLAPSE_STREAK_NEED = 6; // เฟรมติดกันที่ตรวจพบถล่ม (กันสัญญาณหลอก)
+const GAME_START_GRACE_MS = 2500; // ช่วงเริ่มเกม — ยังไม่ตรวจถล่ม
 
 const PLAYER_COLORS = ['#a855f7', '#3b82f6', '#22c55e', '#eab308', '#f97316', '#ef4444'];
 
@@ -510,6 +511,7 @@ class JengaGame {
     this._collapseHandled = false;
     this._collapseStreak = 0;
     this._lateCollapseStreak = 0;
+    this._gameReadyAt = performance.now() + GAME_START_GRACE_MS;
 
     this._initThree();
     this._initPhysics();
@@ -853,7 +855,7 @@ class JengaGame {
     if (this.state === State.CHECKING) {
       const elapsed = (performance.now() - this.checkStartTime) / 1000;
       const settled = this._blocksAreSettled();
-      const collapsed = this._isTowerCollapsed();
+      const collapsed = this._canDetectCollapse() && elapsed >= 0.6 && this._isTowerCollapsed();
 
       if (this.onlineMode && !this.mp.isHost) {
         if (collapsed) {
@@ -900,17 +902,16 @@ class JengaGame {
       }
     }
 
-    // จับตึกถล่มหลังจบ CHECKING แล้ว (กันพลาดตอนบล็อกยังตกช้า)
+    // จับตึกถล่มหลังจบ CHECKING แล้ว (เฉพาะหลังมีการเล่นอย่างน้อย 1 ตา)
     if (
-      this._shouldRunPhysics()
-      && this.state !== State.GAME_OVER
-      && this.state !== State.SETUP
-      && this.state !== State.PLACE_SELECT
-      && this.state !== State.CHECKING
+      this._canDetectCollapse()
+      && this._shouldRunPhysics()
+      && this.state === State.PLAYING
+      && this.moveCount > 0
     ) {
       if (this._isTowerCollapsed()) {
         this._lateCollapseStreak++;
-        if (this._lateCollapseStreak >= 5) this._handleCollapse();
+        if (this._lateCollapseStreak >= 10) this._handleCollapse();
       } else {
         this._lateCollapseStreak = 0;
       }
@@ -1937,6 +1938,7 @@ class JengaGame {
     this._collapseHandled = true;
     this._collapseStreak = 0;
     this._lateCollapseStreak = 0;
+    this._gameReadyAt = performance.now() + GAME_START_GRACE_MS;
 
     this._clearPlaceUI();
     document.getElementById('confirm-panel')?.classList.add('hidden');
@@ -1978,6 +1980,16 @@ class JengaGame {
     this._renderGameOverModal();
   }
 
+  _canDetectCollapse() {
+    if (performance.now() < this._gameReadyAt) return false;
+    if (this.state === State.CHECKING) return true;
+    return this.moveCount > 0;
+  }
+
+  _expectedBlockY(row) {
+    return TABLE_Y + HALF_H + row * BLOCK_H;
+  }
+
   _blocksAreSettled() {
     let bodies = 0;
     let moving = 0;
@@ -1986,16 +1998,20 @@ class JengaGame {
       bodies++;
       const v = b.body.velocity;
       const av = b.body.angularVelocity;
-      if (v.lengthSquared() + av.lengthSquared() > 0.05) moving++;
+      if (v.lengthSquared() + av.lengthSquared() > 0.08) moving++;
     }
     return bodies === 0 || moving === 0;
   }
 
+  /** ถล่มจริง = หลุดโต๊ะ / ลงพื้น / ชั้นบนตกต่ำผิดปกติ (ไม่นับชั้นล่างปกติ) */
   _isTowerCollapsed() {
     let active = 0;
-    let fallen = 0;
-    let upperDropped = 0;
-    const towerBase = TABLE_Y + BLOCK_H;
+    let offTable = 0;
+    let onFloor = 0;
+    let heavilyDisplaced = 0;
+
+    const tableEdge = 4.6;
+    const floorY = TABLE_Y - 0.12;
 
     for (const b of this.blocks) {
       if (!b.body || b.animating) continue;
@@ -2003,14 +2019,20 @@ class JengaGame {
 
       const { x, y, z } = b.body.position;
       const dist = Math.sqrt(x * x + z * z);
+      const expectedY = this._expectedBlockY(b.row);
+      const drop = expectedY - y;
 
-      if (y < towerBase) fallen++;
-      if (dist > 4.8 && y < TABLE_Y + BLOCK_H * 5) fallen++;
-      if (b.row >= 6 && y < TABLE_Y + BLOCK_H * 6) upperDropped++;
+      if (y < floorY) onFloor++;
+      if (dist > tableEdge && y < TABLE_Y + BLOCK_H * 1.5) offTable++;
+      if (b.row >= 4 && drop > BLOCK_H * 2.2) heavilyDisplaced++;
+      if (b.row >= 10 && drop > BLOCK_H * 1.4) heavilyDisplaced++;
     }
 
     if (active === 0) return false;
-    return fallen >= 1 || upperDropped >= 2;
+    if (onFloor >= 1) return true;
+    if (offTable >= 2) return true;
+    if (heavilyDisplaced >= 4) return true;
+    return false;
   }
 
   // ═══════════════════════════════════════════════════════
