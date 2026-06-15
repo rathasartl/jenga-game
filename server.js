@@ -90,6 +90,29 @@ function leaveRoom(ws) {
   }
 }
 
+const VENDOR_ROOTS = [
+  { prefix: '/vendor/three/addons/', dir: path.join(ROOT, 'node_modules/three/examples/jsm') },
+  { prefix: '/vendor/three/', dir: path.join(ROOT, 'node_modules/three/build') },
+  { prefix: '/vendor/', dir: path.join(ROOT, 'node_modules/cannon-es/dist') },
+];
+
+function resolveFilePath(urlPath) {
+  if (urlPath === '/') return path.join(ROOT, 'index.html');
+
+  for (const { prefix, dir } of VENDOR_ROOTS) {
+    if (urlPath.startsWith(prefix)) {
+      const sub = urlPath.slice(prefix.length);
+      const resolved = path.join(dir, sub);
+      if (resolved.startsWith(dir)) return resolved;
+      return null;
+    }
+  }
+
+  const filePath = path.join(ROOT, urlPath);
+  if (!filePath.startsWith(ROOT)) return null;
+  return filePath;
+}
+
 function serveStatic(req, res) {
   let urlPath = req.url.split('?')[0];
 
@@ -99,10 +122,8 @@ function serveStatic(req, res) {
     return;
   }
 
-  if (urlPath === '/') urlPath = '/index.html';
-  const filePath = path.join(ROOT, urlPath);
-
-  if (!filePath.startsWith(ROOT)) {
+  const filePath = resolveFilePath(urlPath);
+  if (!filePath) {
     res.writeHead(403);
     res.end('Forbidden');
     return;

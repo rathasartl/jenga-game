@@ -12,15 +12,24 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
-      "cannon-es": "https://esm.sh/cannon-es@0.20.0"
+      "three": "/vendor/three/three.module.js",
+      "three/addons/": "/vendor/three/addons/",
+      "cannon-es": "/vendor/cannon-es.js"
     }
   }
   </script>
   <script>window.__errors=[];window.addEventListener('error',e=>window.__errors.push(e.message));window.addEventListener('unhandledrejection',e=>window.__errors.push(e.reason?.message||String(e.reason)));</script>
 </head>
 <body>
+  <div id="boot-screen" class="boot-screen">
+    <div class="boot-card">
+      <p class="boot-title">🧱 JENGA 3D</p>
+      <p id="boot-message" class="boot-message">กำลังเตรียมเกม...</p>
+      <div class="boot-spinner" aria-hidden="true"></div>
+      <div id="boot-error" class="boot-error-detail hidden"></div>
+      <button id="boot-retry" class="btn-start boot-retry hidden" type="button">🔄 ลองใหม่</button>
+    </div>
+  </div>
   <!-- ═══════════════════════════════════════════════
        SETUP SCREEN
        ═══════════════════════════════════════════════ -->
@@ -154,6 +163,6 @@
     </div>
   </div>
 
-  <script type="module" src="game.js"></script>
+  <script src="compat.js"></script>
 </body>
 </html>

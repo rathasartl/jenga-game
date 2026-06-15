@@ -63,6 +63,7 @@ class JengaGame {
     this.onlineMode = false;
     this.mp = new MultiplayerClient(this);
     this.playMode = 'local';
+    this.liteMode = !!window.JENGA_LITE;
 
     // Three.js
     this.scene = null;
@@ -223,7 +224,7 @@ class JengaGame {
       status.textContent = '🟢 เข้าห้องแล้ว';
     } catch {
       status.textContent = '🔴 เข้าห้องไม่ได้';
-      this._showOnlineError('เข้าห้องอัตโนมัติไม่ได้ — กด "เข้าร่วม" อีกครั้ง');
+      this._showOnlineError('เข้าห้องอัตโนมัติไม่ได้ — รอเซิร์ฟเวอร์ตื่น ~1 นาที แล้วกด "เข้าร่วม" อีกครั้ง');
     }
   }
 
@@ -245,7 +246,7 @@ class JengaGame {
     try {
       await this.mp.createRoom(name);
     } catch {
-      this._showOnlineError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — รัน npm start ก่อน');
+      this._showOnlineError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — รอ 30–60 วินาที (เซิร์ฟเวอร์อาจกำลังตื่น) แล้วลองอีกครั้ง');
     } finally {
       btn.disabled = false;
       btn.textContent = '🏠 สร้างห้อง';
@@ -266,7 +267,7 @@ class JengaGame {
     try {
       await this.mp.joinRoom(code, name);
     } catch {
-      this._showOnlineError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — รัน npm start ก่อน');
+      this._showOnlineError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — รอ 30–60 วินาที (เซิร์ฟเวอร์อาจกำลังตื่น) แล้วลองอีกครั้ง');
     } finally {
       btn.disabled = false;
       btn.textContent = '🚪 เข้าร่วม';
@@ -524,11 +525,45 @@ class JengaGame {
   // ═══════════════════════════════════════════════════════
   // Three.js Initialization
   // ═══════════════════════════════════════════════════════
+  _createRenderer(canvas) {
+    const lite = this.liteMode;
+    const attempts = lite
+      ? [{ antialias: false, shadows: false }, { antialias: false, shadows: false, powerPreference: 'low-power' }]
+      : [{ antialias: true, shadows: true }, { antialias: false, shadows: true }, { antialias: false, shadows: false }];
+
+    for (const opts of attempts) {
+      try {
+        const renderer = new THREE.WebGLRenderer({
+          antialias: opts.antialias,
+          powerPreference: opts.powerPreference || (lite ? 'low-power' : 'default'),
+          alpha: false,
+        });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(lite ? 1 : Math.min(window.devicePixelRatio || 1, 2));
+        renderer.shadowMap.enabled = opts.shadows;
+        if (opts.shadows) {
+          renderer.shadowMap.type = lite ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
+        }
+        if (!lite) {
+          renderer.toneMapping = THREE.ACESFilmicToneMapping;
+          renderer.toneMappingExposure = 1.1;
+        }
+        this._rendererShadows = opts.shadows;
+        return renderer;
+      } catch {
+        // try next profile
+      }
+    }
+    throw new Error('WebGL สร้างไม่ได้ — ลองปิดแอปอื่นแล้วรีเฟรช');
+  }
+
   _initThree() {
     // Scene
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x080816);
-    this.scene.fog = new THREE.FogExp2(0x080816, 0.025);
+    if (!this.liteMode) {
+      this.scene.fog = new THREE.FogExp2(0x080816, 0.025);
+    }
 
     // Camera
     const aspect = window.innerWidth / window.innerHeight;
@@ -538,13 +573,7 @@ class JengaGame {
 
     // Renderer
     const canvas = document.getElementById('game-canvas');
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.1;
+    this.renderer = this._createRenderer(canvas);
     canvas.appendChild(this.renderer.domElement);
 
     // Controls
@@ -565,8 +594,11 @@ class JengaGame {
     // Key light
     const keyLight = new THREE.DirectionalLight(0xfff5ee, 2.0);
     keyLight.position.set(6, 18, 6);
-    keyLight.castShadow = true;
-    keyLight.shadow.mapSize.set(2048, 2048);
+    const shadowSize = this.liteMode ? 512 : 2048;
+    keyLight.castShadow = !!this._rendererShadows;
+    if (keyLight.castShadow) {
+      keyLight.shadow.mapSize.set(shadowSize, shadowSize);
+    }
     keyLight.shadow.camera.near = 1;
     keyLight.shadow.camera.far = 40;
     keyLight.shadow.camera.left = -8;
@@ -595,11 +627,12 @@ class JengaGame {
     });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
+    ground.receiveShadow = !!this._rendererShadows;
     this.scene.add(ground);
 
     // ── Table ──
-    const tableGeo = new THREE.CylinderGeometry(4.5, 5, 0.35, 48);
+    const tableSegs = this.liteMode ? 24 : 48;
+    const tableGeo = new THREE.CylinderGeometry(4.5, 5, 0.35, tableSegs);
     const tableMat = new THREE.MeshStandardMaterial({
       color: 0x2a1f14,
       roughness: 0.55,
@@ -607,8 +640,8 @@ class JengaGame {
     });
     const table = new THREE.Mesh(tableGeo, tableMat);
     table.position.y = 0.175;
-    table.receiveShadow = true;
-    table.castShadow = true;
+    table.receiveShadow = !!this._rendererShadows;
+    table.castShadow = !!this._rendererShadows;
     this.scene.add(table);
 
     // Table edge glow ring
@@ -641,7 +674,7 @@ class JengaGame {
     this.world = new CANNON.World({
       gravity: new CANNON.Vec3(0, -9.82, 0),
     });
-    this.world.solver.iterations = 30;
+    this.world.solver.iterations = this.liteMode ? 15 : 30;
     this.world.solver.tolerance = 0.0001;
     this.world.allowSleep = true;
 
@@ -726,8 +759,8 @@ class JengaGame {
       emissiveIntensity: 0.04,
     });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    mesh.castShadow = !!this._rendererShadows;
+    mesh.receiveShadow = !!this._rendererShadows;
     mesh.position.set(x, y, z);
     if (!isEven) mesh.rotation.y = Math.PI / 2;
     this.scene.add(mesh);
@@ -2078,6 +2111,7 @@ class JengaGame {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
+    this.renderer.setPixelRatio(this.liteMode ? 1 : Math.min(window.devicePixelRatio || 1, 2));
   }
 }
 

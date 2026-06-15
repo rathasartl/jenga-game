@@ -16,6 +16,8 @@
     "render:keepalive": "bash scripts/render-keepalive.sh"
   },
   "dependencies": {
+    "cannon-es": "^0.20.0",
+    "three": "^0.160.0",
     "ws": "^8.18.0"
   }
 }

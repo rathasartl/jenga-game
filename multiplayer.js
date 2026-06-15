@@ -25,32 +25,54 @@ export class MultiplayerClient {
     return `${proto}//${location.host}`;
   }
 
-  connect() {
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-      return Promise.resolve();
+  async _wakeServer(maxAttempts = 4) {
+    const base = location.origin;
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 25000);
+        const res = await fetch(`${base}/health`, { signal: ctrl.signal, cache: 'no-store' });
+        clearTimeout(timer);
+        if (res.ok) return true;
+      } catch {
+        // Render free tier cold start — retry
+      }
+      await new Promise((r) => setTimeout(r, 2000 + i * 1500));
     }
+    return false;
+  }
 
+  _connectOnce() {
     return new Promise((resolve, reject) => {
-      this.ws = new WebSocket(this._getWsUrl());
+      const url = this._getWsUrl();
+      const ws = new WebSocket(url);
+      const timeoutMs = window.JENGA_LITE ? 35000 : 20000;
+      const timer = setTimeout(() => {
+        try { ws.close(); } catch { /* ignore */ }
+        reject(new Error('หมดเวลาเชื่อมต่อ — เซิร์ฟเวอร์อาจกำลังตื่น ลองอีกครั้ง'));
+      }, timeoutMs);
 
-      this.ws.onopen = () => {
+      ws.onopen = () => {
+        clearTimeout(timer);
+        this.ws = ws;
         this._setConnectionStatus(true);
         resolve();
       };
 
-      this.ws.onerror = () => {
+      ws.onerror = () => {
+        clearTimeout(timer);
         this._setConnectionStatus(false);
         reject(new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'));
       };
 
-      this.ws.onclose = () => {
+      ws.onclose = () => {
         this._setConnectionStatus(false);
         if (this.inRoom && this.game.onlineMode) {
           this.game._setStatus('⚠️ ขาดการเชื่อมต่อ — กำลังลองใหม่...');
         }
       };
 
-      this.ws.onmessage = (e) => {
+      ws.onmessage = (e) => {
         let msg;
         try {
           msg = JSON.parse(e.data);
@@ -60,6 +82,32 @@ export class MultiplayerClient {
         this._handleMessage(msg);
       };
     });
+  }
+
+  async connect() {
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
+    await this._wakeServer();
+
+    const attempts = window.JENGA_LITE ? 4 : 3;
+    let lastErr;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        await this._connectOnce();
+        return;
+      } catch (err) {
+        lastErr = err;
+        if (this.ws) {
+          try { this.ws.close(); } catch { /* ignore */ }
+          this.ws = null;
+        }
+        await new Promise((r) => setTimeout(r, 1500 + i * 2000));
+        await this._wakeServer(2);
+      }
+    }
+    throw lastErr || new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');
   }
 
   send(type, payload = {}) {
