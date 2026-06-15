@@ -291,7 +291,9 @@ class JengaGame {
     this._updateLobby(msg.players, msg.started);
     this._setLobbyStatus(
       this.mp.isHost
-        ? 'ส่งลิงก์ให้เพื่อน — รอผู้เล่นเข้าร่วม (เล่นได้จากที่ไหนก็ได้)'
+        ? (window.JENGA_LITE
+          ? '⚠️ เครื่องนี้สเปคต่ำ — เพื่อนอาจรู้สึกกระตุก แนะนำให้เครื่องแรงกว่าสร้างห้อง'
+          : 'ส่งลิงก์ให้เพื่อน — รอผู้เล่นเข้าร่วม (เล่นได้จากที่ไหนก็ได้)')
         : 'รอเจ้าของห้องเริ่มเกม...'
     );
   }
@@ -893,6 +895,11 @@ class JengaGame {
       this.camera.position.y = this.cameraBasePos.y + Math.cos(t * 7.1) * this.shakeIntensity * 0.5;
       this.camera.position.z = this.cameraBasePos.z + Math.sin(t * 6.7) * this.shakeIntensity * 0.7;
       this.shakeIntensity *= 0.94;
+    }
+
+    // ออนไลน์ (ไม่ใช่ host): ขยับบล็อกแบบลื่น แทนการกระโดดทุก 280ms
+    if (this.onlineMode && !this.mp.isHost) {
+      this._lerpSyncedBlocks();
     }
 
     // Controls
@@ -1604,8 +1611,21 @@ class JengaGame {
     });
   }
 
-  _applyBlockSnapshot(snaps) {
+  _lerpSyncedBlocks() {
+    const now = performance.now();
+    for (const b of this.blocks) {
+      const L = b._syncLerp;
+      if (!L) continue;
+      const t = Math.min(1, (now - L.start) / L.duration);
+      b.mesh.position.lerpVectors(L.fromPos, L.toPos, t);
+      b.mesh.quaternion.slerpQuaternions(L.fromQuat, L.toQuat, t);
+      if (t >= 1) delete b._syncLerp;
+    }
+  }
+
+  _applyBlockSnapshot(snaps, opts = {}) {
     if (!snaps?.length) return;
+    const { visualOnly = false, smooth = false } = opts;
 
     for (const s of snaps) {
       const block = this.blocks.find((b) => b.id === s.id);
@@ -1614,8 +1634,26 @@ class JengaGame {
       block.row = s.row;
       block.isEven = s.isEven;
       block.animating = false;
-      block.mesh.position.set(s.x, s.y, s.z);
-      block.mesh.quaternion.set(s.qx, s.qy, s.qz, s.qw);
+
+      const toPos = new THREE.Vector3(s.x, s.y, s.z);
+      const toQuat = new THREE.Quaternion(s.qx, s.qy, s.qz, s.qw);
+
+      if (smooth) {
+        block._syncLerp = {
+          fromPos: block.mesh.position.clone(),
+          fromQuat: block.mesh.quaternion.clone(),
+          toPos,
+          toQuat,
+          start: performance.now(),
+          duration: 240,
+        };
+      } else {
+        delete block._syncLerp;
+        block.mesh.position.copy(toPos);
+        block.mesh.quaternion.copy(toQuat);
+      }
+
+      if (visualOnly) continue;
 
       if (s.active && !block.body) {
         const shape = new CANNON.Box(new CANNON.Vec3(HALF_W, HALF_H, HALF_L));

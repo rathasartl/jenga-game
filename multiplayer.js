@@ -276,7 +276,7 @@ export class MultiplayerClient {
 
       case 'block_sync':
         if (!this.isHost) {
-          g._applyBlockSnapshot(msg.blocks);
+          g._applyBlockSnapshot(msg.blocks, { visualOnly: true, smooth: true });
         }
         break;
 
