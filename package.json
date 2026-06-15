@@ -13,7 +13,9 @@
     "tunnel": "bash scripts/tunnel.sh",
     "tunnel:home": "bash scripts/home-tunnel.sh",
     "setup:vps": "bash scripts/setup-vps.sh",
-    "render:keepalive": "bash scripts/render-keepalive.sh"
+    "render:keepalive": "bash scripts/render-keepalive.sh",
+    "autostart:mac": "bash scripts/setup-mac-autostart.sh",
+    "autostart:mac:off": "bash scripts/remove-mac-autostart.sh"
   },
   "dependencies": {
     "cannon-es": "^0.20.0",
