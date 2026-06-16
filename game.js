@@ -475,6 +475,11 @@ class JengaGame {
     return this.mp.myPlayerIdx === this.currentPlayerIdx;
   }
 
+  /** เลือก/เปลี่ยนบล็อกได้ตอนรอเล่นหรือเลือกไว้แล้วแต่ยังไม่ดึง */
+  _canSelectBlock() {
+    return (this.state === State.PLAYING || this.state === State.SELECTED) && this._canInteract();
+  }
+
   _updatePlayerInputs(count) {
     const container = document.getElementById('player-inputs');
     container.innerHTML = '';
@@ -1091,7 +1096,7 @@ class JengaGame {
       return;
     }
 
-    if (this.state === State.PLAYING && this._canInteract()) {
+    if (this._canSelectBlock()) {
       this._trySelect();
     }
   }
@@ -1142,7 +1147,7 @@ class JengaGame {
       this.mouse = this._getMouseNDC(touch.clientX, touch.clientY);
       if (this.state === State.PLACE_SELECT) {
         this._tryPlaceSelect();
-      } else if (this.state === State.PLAYING && this._canInteract()) {
+      } else if (this._canSelectBlock()) {
         this._trySelect();
       }
     }
@@ -1172,7 +1177,11 @@ class JengaGame {
       const block = hits[0].object.userData.block;
       if (block && this._isRemovable(block) && block !== this.selectedBlock) {
         this.hoveredBlock = block;
-        this._highlight(block, 0xffee88, 0.15);
+        const hoverColor = this.state === State.SELECTED ? 0xffcc66 : 0xffee88;
+        this._highlight(block, hoverColor, this.state === State.SELECTED ? 0.22 : 0.15);
+        this.renderer.domElement.style.cursor = 'pointer';
+      } else if (block === this.selectedBlock) {
+        this.hoveredBlock = null;
         this.renderer.domElement.style.cursor = 'pointer';
       } else {
         this.hoveredBlock = null;
@@ -1192,13 +1201,15 @@ class JengaGame {
     if (hits.length > 0) {
       const block = hits[0].object.userData.block;
       if (block && this._isRemovable(block)) {
-        // If already selected the same block, pull it
+        // คลิกบล็อกเดิมอีกครั้ง = ยืนยันดึง
         if (this.selectedBlock === block) {
           this._confirmPull();
           return;
         }
 
-        // Deselect previous
+        const changedSelection = !!this.selectedBlock;
+
+        // เปลี่ยนใจ — ยกเลิกไฮไลต์บล็อกเดิมก่อน
         if (this.selectedBlock) {
           this._unhighlight(this.selectedBlock);
         }
@@ -1208,9 +1219,12 @@ class JengaGame {
         this._highlight(block, pColor, 0.4);
         this.state = State.SELECTED;
 
-        // Show confirm panel
         document.getElementById('confirm-panel').classList.remove('hidden');
-        this._setStatus('📌 คลิกอีกครั้งหรือกด "ดึง" เพื่อยืนยัน');
+        this._setStatus(
+          changedSelection
+            ? '🔄 เปลี่ยนบล็อกแล้ว — คลิกบล็อกนี้อีกครั้งหรือกด "ดึง" เพื่อยืนยัน'
+            : '📌 เลือกบล็อกแล้ว — คลิกบล็อกอื่นเพื่อเปลี่ยนใจ หรือกด "ดึง" เพื่อยืนยัน',
+        );
       }
     }
   }
@@ -2071,7 +2085,7 @@ class JengaGame {
       const current = this.players[this.currentPlayerIdx];
       this._setStatus(`⏳ รอ ${current.name} เล่น...`);
     } else {
-      this._setStatus('คลิกบล็อกที่ต้องการดึง');
+      this._setStatus('คลิกบล็อกที่ต้องการดึง — เลือกแล้วคลิกบล็อกอื่นเพื่อเปลี่ยนใจได้');
     }
   }
 
